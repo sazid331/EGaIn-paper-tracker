@@ -11,7 +11,6 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent
 REPORTS_DIR = ROOT_DIR / "reports"
-ONEDRIVE_DIR = Path.home() / "Library/CloudStorage/OneDrive-UniversityofTennessee/EGaIn Paper Tracker"
 SEARCH_DAYS = 8
 OPENALEX_API = "https://api.openalex.org/works"
 
@@ -534,19 +533,6 @@ def generate_readme(new_papers: list):
     print(f"README.md updated with dashboard ({len(all_papers)} total papers)")
 
 
-def sync_to_onedrive():
-    """Copy Excel reports to OneDrive for online viewing."""
-    import shutil
-    if not ONEDRIVE_DIR.parent.exists():
-        print("OneDrive not available (cloud run or not syncing) — skipping sync.")
-        return
-    ONEDRIVE_DIR.mkdir(exist_ok=True)
-    for f in REPORTS_DIR.glob("egain_papers_*.xlsx"):
-        dest = ONEDRIVE_DIR / f.name
-        shutil.copy2(f, dest)
-    print(f"Excel reports synced to OneDrive: {ONEDRIVE_DIR}")
-
-
 def main():
     REPORTS_DIR.mkdir(exist_ok=True)
 
@@ -565,7 +551,6 @@ def main():
     print(f"Added {added} new papers to {excel_path.name}")
 
     generate_readme(new_papers)
-    sync_to_onedrive()
 
     if added == 0:
         print("No new papers found — Excel unchanged.")
