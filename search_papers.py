@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent
 REPORTS_DIR = ROOT_DIR / "reports"
+ONEDRIVE_DIR = Path.home() / "Library/CloudStorage/OneDrive-UniversityofTennessee/EGaIn Paper Tracker"
 SEARCH_DAYS = 8
 OPENALEX_API = "https://api.openalex.org/works"
 
@@ -83,7 +84,7 @@ TOPIC_KEYWORDS = {
 MAILTO = "rssazid331@gmail.com"
 CSV_HEADERS = [
     "Title", "Authors", "DOI", "Journal", "Publication Date",
-    "Topics", "Summary", "Cited By", "Open Access URL", "Date Added",
+    "Topics", "Abstract", "Summary", "Cited By", "Open Access URL", "Date Added",
 ]
 
 
@@ -346,7 +347,7 @@ def append_papers(papers: dict, existing_dois: set, excel_path: Path, csv_path: 
 
         writer.writerow([
             paper["title"], paper["authors"], paper["doi"], paper["journal"],
-            paper["publication_date"], topics_str, summary,
+            paper["publication_date"], topics_str, paper["abstract"], summary,
             paper["cited_by_count"], paper["open_access_url"], today,
         ])
 
@@ -471,7 +472,7 @@ def generate_readme(new_papers: list):
             journal = p.get("Journal", "")
             pub_date = p.get("Publication Date", "")
             topics = p.get("Topics", "")
-            summary = p.get("Summary", "")
+            abstract = p.get("Abstract", "")
             authors = p.get("Authors", "")
 
             if doi:
@@ -492,8 +493,8 @@ def generate_readme(new_papers: list):
             if authors:
                 lines.append(f"**Authors:** {authors}")
                 lines.append("")
-            if summary:
-                lines.append(f"> {summary}")
+            if abstract:
+                lines.append(f"> {abstract}")
                 lines.append("")
             lines.append("---")
             lines.append("")
@@ -533,6 +534,19 @@ def generate_readme(new_papers: list):
     print(f"README.md updated with dashboard ({len(all_papers)} total papers)")
 
 
+def sync_to_onedrive():
+    """Copy Excel reports to OneDrive for online viewing."""
+    import shutil
+    if not ONEDRIVE_DIR.parent.exists():
+        print("OneDrive not available (cloud run or not syncing) — skipping sync.")
+        return
+    ONEDRIVE_DIR.mkdir(exist_ok=True)
+    for f in REPORTS_DIR.glob("egain_papers_*.xlsx"):
+        dest = ONEDRIVE_DIR / f.name
+        shutil.copy2(f, dest)
+    print(f"Excel reports synced to OneDrive: {ONEDRIVE_DIR}")
+
+
 def main():
     REPORTS_DIR.mkdir(exist_ok=True)
 
@@ -551,6 +565,7 @@ def main():
     print(f"Added {added} new papers to {excel_path.name}")
 
     generate_readme(new_papers)
+    sync_to_onedrive()
 
     if added == 0:
         print("No new papers found — Excel unchanged.")
