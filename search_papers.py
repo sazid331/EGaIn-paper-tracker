@@ -198,18 +198,24 @@ def generate_summary(title: str, abstract: str) -> str:
 def append_papers(papers: dict, existing_dois: set) -> int:
     from openpyxl.styles import Alignment
 
-    wb = create_or_load_workbook()
-    ws = wb.active
-    added = 0
-    today = datetime.now().strftime("%Y-%m-%d")
-
+    new_papers = []
     for paper in papers.values():
         doi_lower = paper["doi"].strip().lower()
         if doi_lower and doi_lower in existing_dois:
             continue
+        new_papers.append(paper)
+        if doi_lower:
+            existing_dois.add(doi_lower)
 
+    if not new_papers:
+        return 0
+
+    wb = create_or_load_workbook()
+    ws = wb.active
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    for paper in new_papers:
         summary = generate_summary(paper["title"], paper["abstract"])
-
         row = [
             paper["title"],
             paper["authors"],
@@ -228,13 +234,9 @@ def append_papers(papers: dict, existing_dois: set) -> int:
             cell = ws.cell(row=ws.max_row, column=col)
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-        added += 1
-        if doi_lower:
-            existing_dois.add(doi_lower)
-
     wb.save(EXCEL_FILE)
     wb.close()
-    return added
+    return len(new_papers)
 
 
 def main():
