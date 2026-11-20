@@ -1,26 +1,46 @@
 #!/usr/bin/env python3
-"""Search OpenAlex for recent EGaIn-related papers and update an Excel tracker."""
+"""Search OpenAlex for recent EGaIn-related papers and update a monthly Excel tracker."""
 
 import json
+import re
 import requests
 from datetime import datetime, timedelta
 from pathlib import Path
 
-EXCEL_FILE = Path(__file__).parent / "egain_papers.xlsx"
-SEARCH_DAYS = 8  # overlap by 1 day to avoid missing papers at boundaries
+REPORTS_DIR = Path(__file__).parent / "reports"
+SEARCH_DAYS = 8
 OPENALEX_API = "https://api.openalex.org/works"
 
 SEARCH_QUERIES = [
     "EGaIn",
     "eutectic gallium indium",
-    "liquid metal gallium indium",
-    "gallium indium alloy soft electronics",
-    "gallium indium microfluidics",
-    "liquid metal stretchable sensor",
-    "liquid metal soft robotics",
+    "eutectic gallium-indium",
+    "EGaIn liquid metal",
+    "EGaIn soft electronics",
+    "EGaIn microfluidics",
+    "EGaIn stretchable",
+    "EGaIn sensor",
+    "EGaIn thermal interface",
+    "gallium indium eutectic alloy",
+]
+
+RELEVANCE_TERMS = [
+    "egain", "eutectic gallium", "gallium.indium", "ga.in eutectic",
+    "galinstan", "liquid metal alloy", "liquid.metal.sensor",
+    "liquid.metal.stretchable", "liquid.metal.soft",
+    "liquid.metal.flexible", "liquid.metal.electrode",
+    "liquid.metal.thermal", "liquid.metal.microfluid",
+    "liquid.metal.droplet", "liquid.metal.circuit",
+    "liquid.metal.antenna", "liquid.metal.reconfigurable",
 ]
 
 MAILTO = "rssazid331@gmail.com"
+
+
+def get_monthly_excel_path() -> Path:
+    now = datetime.now()
+    filename = f"egain_papers_{now.year}_{now.month:02d}.xlsx"
+    return REPORTS_DIR / filename
 
 
 def build_openalex_params(query: str, from_date: str) -> dict:
@@ -44,8 +64,15 @@ def reconstruct_abstract(inverted_index: dict) -> str:
     return " ".join(w for _, w in word_positions)
 
 
+def is_relevant(title: str, abstract: str) -> bool:
+    text = (title + " " + abstract).lower()
+    for term in RELEVANCE_TERMS:
+        if re.search(term, text):
+            return True
+    return False
+
+
 def fetch_papers(from_date: str) -> dict:
-    """Fetch papers from OpenAlex, deduplicated by DOI."""
     seen_ids = set()
     papers = {}
 
@@ -72,6 +99,9 @@ def fetch_papers(from_date: str) -> dict:
             abstract = reconstruct_abstract(
                 work.get("abstract_inverted_index") or {}
             )
+
+            if not is_relevant(title, abstract):
+                continue
 
             authors_list = []
             for authorship in (work.get("authorships") or [])[:5]:
@@ -103,13 +133,12 @@ def fetch_papers(from_date: str) -> dict:
     return papers
 
 
-def load_existing_dois() -> set:
-    """Load DOIs already in the Excel file to avoid duplicates."""
+def load_existing_dois(excel_path: Path) -> set:
     import openpyxl
 
-    if not EXCEL_FILE.exists():
+    if not excel_path.exists():
         return set()
-    wb = openpyxl.load_workbook(EXCEL_FILE)
+    wb = openpyxl.load_workbook(excel_path)
     ws = wb.active
     dois = set()
     for row in ws.iter_rows(min_row=2, min_col=3, max_col=3, values_only=True):
@@ -119,16 +148,37 @@ def load_existing_dois() -> set:
     return dois
 
 
-def create_or_load_workbook():
+def load_all_existing_dois() -> set:
+    """Load DOIs from all monthly reports to avoid duplicates across months."""
+    dois = set()
+    if not REPORTS_DIR.exists():
+        return dois
     import openpyxl
-    from openpyxl.styles import Font, Alignment, PatternFill
+    for f in REPORTS_DIR.glob("egain_papers_*.xlsx"):
+        try:
+            wb = openpyxl.load_workbook(f)
+            ws = wb.active
+            for row in ws.iter_rows(min_row=2, min_col=3, max_col=3, values_only=True):
+                if row[0]:
+                    dois.add(str(row[0]).strip().lower())
+            wb.close()
+        except Exception:
+            continue
+    return dois
 
-    if EXCEL_FILE.exists():
-        return openpyxl.load_workbook(EXCEL_FILE)
+
+def create_or_load_workbook(excel_path: Path):
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+    if excel_path.exists():
+        return openpyxl.load_workbook(excel_path)
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "EGaIn Papers"
+
+    now = datetime.now()
+    ws.title = f"{now.strftime('%B %Y')}"
 
     headers = [
         "Title",
@@ -143,32 +193,37 @@ def create_or_load_workbook():
         "Date Added",
     ]
 
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
+    header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=13)
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    thin_border = Border(
+        bottom=Side(style="thin", color="B4C6E7"),
+    )
 
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.font = header_font
         cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin_border
 
-    ws.column_dimensions["A"].width = 60
-    ws.column_dimensions["B"].width = 40
-    ws.column_dimensions["C"].width = 40
-    ws.column_dimensions["D"].width = 30
-    ws.column_dimensions["E"].width = 15
-    ws.column_dimensions["F"].width = 80
-    ws.column_dimensions["G"].width = 60
-    ws.column_dimensions["H"].width = 10
-    ws.column_dimensions["I"].width = 40
+    ws.row_dimensions[1].height = 30
+
+    ws.column_dimensions["A"].width = 65
+    ws.column_dimensions["B"].width = 45
+    ws.column_dimensions["C"].width = 45
+    ws.column_dimensions["D"].width = 35
+    ws.column_dimensions["E"].width = 18
+    ws.column_dimensions["F"].width = 90
+    ws.column_dimensions["G"].width = 65
+    ws.column_dimensions["H"].width = 12
+    ws.column_dimensions["I"].width = 45
     ws.column_dimensions["J"].width = 15
 
-    wb.save(EXCEL_FILE)
+    wb.save(excel_path)
     return wb
 
 
 def generate_summary(title: str, abstract: str) -> str:
-    """Generate a brief summary from title and abstract."""
     if not abstract:
         return f"Paper on: {title[:200]}"
     sentences = abstract.replace(". ", ".\n").split("\n")
@@ -195,8 +250,8 @@ def generate_summary(title: str, abstract: str) -> str:
     return summary
 
 
-def append_papers(papers: dict, existing_dois: set) -> int:
-    from openpyxl.styles import Alignment
+def append_papers(papers: dict, existing_dois: set, excel_path: Path) -> int:
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
     new_papers = []
     for paper in papers.values():
@@ -210,13 +265,19 @@ def append_papers(papers: dict, existing_dois: set) -> int:
     if not new_papers:
         return 0
 
-    wb = create_or_load_workbook()
+    wb = create_or_load_workbook(excel_path)
     ws = wb.active
     today = datetime.now().strftime("%Y-%m-%d")
 
-    for paper in new_papers:
+    body_font = Font(name="Calibri", size=11)
+    title_font = Font(name="Calibri", size=11, bold=True)
+    doi_font = Font(name="Calibri", size=11, color="0563C1", underline="single")
+    row_border = Border(bottom=Side(style="thin", color="D9E2F3"))
+    light_fill = PatternFill(start_color="F2F6FC", end_color="F2F6FC", fill_type="solid")
+
+    for i, paper in enumerate(new_papers):
         summary = generate_summary(paper["title"], paper["abstract"])
-        row = [
+        row_data = [
             paper["title"],
             paper["authors"],
             paper["doi"],
@@ -228,29 +289,46 @@ def append_papers(papers: dict, existing_dois: set) -> int:
             paper["open_access_url"],
             today,
         ]
-        ws.append(row)
+        ws.append(row_data)
+        row_num = ws.max_row
+
+        use_stripe = (row_num % 2 == 0)
+        ws.row_dimensions[row_num].height = 45
 
         for col in range(1, 11):
-            cell = ws.cell(row=ws.max_row, column=col)
+            cell = ws.cell(row=row_num, column=col)
             cell.alignment = Alignment(wrap_text=True, vertical="top")
+            cell.border = row_border
+            if col == 1:
+                cell.font = title_font
+            elif col == 3:
+                cell.font = doi_font
+            else:
+                cell.font = body_font
+            if use_stripe:
+                cell.fill = light_fill
 
-    wb.save(EXCEL_FILE)
+    wb.save(excel_path)
     wb.close()
     return len(new_papers)
 
 
 def main():
+    REPORTS_DIR.mkdir(exist_ok=True)
+
+    excel_path = get_monthly_excel_path()
     from_date = (datetime.now() - timedelta(days=SEARCH_DAYS)).strftime("%Y-%m-%d")
+    print(f"Monthly report: {excel_path.name}")
     print(f"Searching for EGaIn papers published since {from_date}...")
 
     papers = fetch_papers(from_date)
-    print(f"Found {len(papers)} papers from OpenAlex")
+    print(f"Found {len(papers)} relevant papers from OpenAlex")
 
-    existing_dois = load_existing_dois()
-    print(f"Already tracking {len(existing_dois)} papers")
+    existing_dois = load_all_existing_dois()
+    print(f"Already tracking {len(existing_dois)} papers across all months")
 
-    added = append_papers(papers, existing_dois)
-    print(f"Added {added} new papers to {EXCEL_FILE.name}")
+    added = append_papers(papers, existing_dois, excel_path)
+    print(f"Added {added} new papers to {excel_path.name}")
 
     if added == 0:
         print("No new papers found — Excel unchanged.")
