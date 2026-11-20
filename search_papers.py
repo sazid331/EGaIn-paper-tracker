@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 EXCEL_FILE = Path(__file__).parent / "egain_papers.xlsx"
-SEARCH_DAYS = 4  # overlap by 1 day to avoid missing papers at boundaries
+SEARCH_DAYS = 8  # overlap by 1 day to avoid missing papers at boundaries
 OPENALEX_API = "https://api.openalex.org/works"
 
 SEARCH_QUERIES = [
